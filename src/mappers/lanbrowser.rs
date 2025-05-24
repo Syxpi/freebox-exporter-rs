@@ -9,50 +9,12 @@ use crate::{
 };
 use async_trait::async_trait;
 use log::{debug, error};
+use models::{LanBrowserInterface, LanHost, LanHostL2Ident};
 use prometheus_exporter::prometheus::{register_int_gauge_vec, IntGaugeVec};
 use reqwest::Client;
-use serde::Deserialize;
 use std::error::Error;
 
-#[derive(Deserialize, Clone, Debug)]
-pub struct LanBrowserInterface {
-    name: Option<String>,
-    host_count: Option<i32>,
-}
-
-#[derive(Deserialize, Clone, Debug)]
-pub struct LanHost {
-    id: Option<String>,
-    primary_name: Option<String>,
-    host_type: Option<String>,
-    primary_name_manual: Option<bool>,
-    l2ident: Option<LanHostL2Ident>,
-    vendor_name: Option<String>,
-    active: Option<bool>,
-    last_activity: Option<i64>,
-    names: Option<Vec<LanHostName>>,
-    l3connectivities: Option<Vec<LanHostL3Connectivity>>,
-}
-
-#[derive(Deserialize, Clone, Debug)]
-pub struct LanHostName {
-    pub name: Option<String>,
-    pub source: Option<String>,
-}
-
-#[derive(Deserialize, Clone, Debug)]
-pub struct LanHostL2Ident {
-    pub id: Option<String>,
-    #[serde(alias = "type")]
-    pub _type: Option<String>,
-}
-
-#[derive(Deserialize, Clone, Debug)]
-pub struct LanHostL3Connectivity {
-    pub addr: Option<String>,
-    pub af: Option<String>,
-    pub active: Option<bool>,
-}
+pub mod models;
 
 pub struct LanBrowserMetricMap<'a> {
     factory: &'a AuthenticatedHttpClientFactory<'a>,

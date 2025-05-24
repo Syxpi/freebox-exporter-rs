@@ -141,32 +141,18 @@ impl<'a> SystemMetricMap<'a> {
     async fn get_managed_client(
         &mut self,
     ) -> Result<Client, Box<dyn std::error::Error + Send + Sync>> {
-        if self.managed_client.as_ref().is_none() {
+        if self.managed_client.is_none() {
             debug!("creating managed client");
-
-            let res = self.factory.create_managed_client().await;
-
-            if res.is_err() {
-                debug!("cannot create managed client");
-
-                return Err(res.err().unwrap());
-            }
-
-            self.managed_client = Some(res.unwrap());
+            self.managed_client = Some(self.factory.create_managed_client().await?);
         }
-
-        let client = self.managed_client.as_ref().clone().unwrap();
-        let res = client.get();
-
-        if res.is_ok() {
-            return Ok(res.unwrap());
-        } else {
-            debug!("renewing managed client");
-
-            let client = self.factory.create_managed_client().await;
-            self.managed_client = Some(client.unwrap());
-
-            return self.managed_client.as_ref().unwrap().get();
+        match self.managed_client.as_ref().unwrap().get() {
+            Ok(client) => Ok(client),
+            Err(_) => {
+                debug!("renewing managed client");
+                let client = self.factory.create_managed_client().await?;
+                self.managed_client = Some(client);
+                self.managed_client.as_ref().unwrap().get()
+            }
         }
     }
 
@@ -175,8 +161,7 @@ impl<'a> SystemMetricMap<'a> {
 
         let body = self
             .get_managed_client()
-            .await
-            .unwrap()
+            .await?
             .get(format!("{}v4/system", self.factory.api_url))
             .send()
             .await?
@@ -204,20 +189,20 @@ impl<'a> SystemMetricMap<'a> {
         };
 
         self.mac_metric
-            .with_label_values(&[&sys_cnf.mac.clone().unwrap_or_default()])
+            .with_label_values(&[&sys_cnf.mac.unwrap_or_default()])
             .set(1);
         self.box_flavor_metric
-            .with_label_values(&[&sys_cnf.box_flavor.clone().unwrap_or_default()])
+            .with_label_values(&[&sys_cnf.box_flavor.unwrap_or_default()])
             .set(1);
         self.temp_cpub_metric
-            .set(sys_cnf.temp_cpub.clone().unwrap_or_default());
+            .set(sys_cnf.temp_cpub.unwrap_or_default());
         self.disk_status_metric
             .with_label_values(&[&sys_cnf.disk_status.clone().unwrap_or_default()])
             .set(sys_cnf.disk_status.is_some().into());
         self.box_authenticated_metric
             .set(sys_cnf.box_authenticated.unwrap_or_default().into());
         self.board_name_metric
-            .with_label_values(&[&sys_cnf.board_name.clone().unwrap_or_default()])
+            .with_label_values(&[&sys_cnf.board_name.unwrap_or_default()])
             .set(1);
         self.fan_rpm_metric.set(sys_cnf.fan_rpm.unwrap_or_default());
         self.temp_sw_metric.set(sys_cnf.temp_sw.unwrap_or_default());
@@ -229,10 +214,10 @@ impl<'a> SystemMetricMap<'a> {
         self.temp_cpum_metric
             .set(sys_cnf.temp_cpum.unwrap_or_default());
         self.serial_metric
-            .with_label_values(&[&sys_cnf.serial.clone().unwrap_or_default()])
+            .with_label_values(&[&sys_cnf.serial.unwrap_or_default()])
             .set(1);
         self.firmware_version_metric
-            .with_label_values(&[&sys_cnf.firmware_version.clone().unwrap_or_default()])
+            .with_label_values(&[&sys_cnf.firmware_version.unwrap_or_default()])
             .set(1);
         Ok(())
     }

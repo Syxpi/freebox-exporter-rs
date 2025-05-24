@@ -1,112 +1,17 @@
-use std::error::Error;
 use async_trait::async_trait;
 use log::debug;
+use models::{DhcpLease, DynamicDhcpLease, StaticDhcpLease};
 use prometheus_exporter::prometheus::{register_int_gauge_vec, IntGaugeVec};
 use reqwest::Client;
-use serde::Deserialize;
+use std::error::Error;
 
 use crate::core::common::http_client_factory::{AuthenticatedHttpClientFactory, ManagedHttpClient};
 use crate::core::common::transport::FreeboxResponse;
 use crate::diagnostics::{DryRunOutputWriter, DryRunnable};
 use crate::mappers::MetricMap;
 
-#[derive(Debug, Deserialize, Clone)]
-struct StaticDhcpLease {
-    id: Option<String>,
-    hostname: Option<String>,
-    ip: Option<String>,
-    mac: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Clone)]
-struct DynamicDhcpLease {
-    id: Option<String>,
-    hostname: Option<String>,
-    ip: Option<String>,
-    mac: Option<String>,
-    assign_time: Option<u64>,
-    lease_remaining: Option<u64>,
-    refresh_time: Option<u64>,
-}
-
-trait DhcpLease: std::fmt::Debug + Send {
-    fn get_id(&self) -> Option<String>;
-    fn get_hostname(&self) -> Option<String>;
-    fn get_ip(&self) -> Option<String>;
-    fn get_mac(&self) -> Option<String>;
-    fn get_is_static(&self) -> Option<bool>;
-    fn get_lease_remaining(&self) -> Option<i64>;
-    fn get_assign_time(&self) -> Option<u64>;
-    fn get_refresh_time(&self) -> Option<i64>;
-}
-
-impl DhcpLease for StaticDhcpLease {
-    fn get_id(&self) -> Option<String> {
-        self.id.clone()
-    }
-
-    fn get_hostname(&self) -> Option<String> {
-        self.hostname.clone()
-    }
-
-    fn get_ip(&self) -> Option<String> {
-        self.ip.clone()
-    }
-
-    fn get_mac(&self) -> Option<String> {
-        self.mac.clone()
-    }
-
-    fn get_is_static(&self) -> Option<bool> {
-        Some(true)
-    }
-
-    fn get_lease_remaining(&self) -> Option<i64> {
-        Some(-1)
-    }
-
-    fn get_assign_time(&self) -> Option<u64> {
-        Some(0)
-    }
-
-    fn get_refresh_time(&self) -> Option<i64> {
-        Some(-1)
-    }
-}
-
-impl DhcpLease for DynamicDhcpLease {
-    fn get_id(&self) -> Option<String> {
-        self.id.clone()
-    }
-
-    fn get_hostname(&self) -> Option<String> {
-        self.hostname.clone()
-    }
-
-    fn get_ip(&self) -> Option<String> {
-        self.ip.clone()
-    }
-
-    fn get_mac(&self) -> Option<String> {
-        self.mac.clone()
-    }
-
-    fn get_is_static(&self) -> Option<bool> {
-        Some(false)
-    }
-
-    fn get_lease_remaining(&self) -> Option<i64> {
-        self.lease_remaining.clone().map(|v| v as i64)
-    }
-
-    fn get_assign_time(&self) -> Option<u64> {
-        self.assign_time.clone()
-    }
-
-    fn get_refresh_time(&self) -> Option<i64> {
-        self.refresh_time.clone().map(|v| v as i64)
-    }
-}
+pub mod models;
+pub mod unittests;
 
 pub struct DhcpMetricMap<'a> {
     factory: &'a AuthenticatedHttpClientFactory<'a>,
@@ -355,48 +260,14 @@ impl DryRunnable for DhcpMetricMap<'_> {
         Ok("dhcp".to_string())
     }
 
-    async fn dry_run(&mut self, _writer: &mut dyn DryRunOutputWriter) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn dry_run(
+        &mut self,
+        _writer: &mut dyn DryRunOutputWriter,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         Ok(())
     }
 
     fn as_dry_runnable(&mut self) -> &mut dyn DryRunnable {
         self
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::mappers::api_specs_provider::get_specs_data;
-    use serde_json::from_str;
-
-    #[tokio::test]
-    async fn test_deserialize_dhcp_static_leases() {
-        let json_data = get_specs_data("dhcp", "api_v2_dhcp_static_lease-get")
-            .await
-            .unwrap();
-
-        let data: Result<FreeboxResponse<Vec<StaticDhcpLease>>, _> = from_str(&json_data);
-
-        if let Ok(e) = &data {
-            println!("{:?}", e);
-        }
-
-        assert!(data.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_deserialize_dhcp_dynamic_leases() {
-        let json_data = get_specs_data("dhcp", "api_v2_dhcp_dynamic_lease-get")
-            .await
-            .unwrap();
-
-        let data: Result<FreeboxResponse<Vec<DynamicDhcpLease>>, _> = from_str(&json_data);
-
-        if let Ok(e) = &data {
-            println!("{:?}", e);
-        }
-
-        assert!(data.is_ok());
     }
 }

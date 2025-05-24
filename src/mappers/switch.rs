@@ -1,65 +1,21 @@
 use async_trait::async_trait;
 use lazy_static::lazy_static;
 use log::debug;
+use models::{SwitchPortStats, SwitchPortStatus};
 use prometheus_exporter::prometheus::{register_int_gauge_vec, IntGaugeVec};
 use regex::Regex;
 use reqwest::Client;
-use serde::Deserialize;
 
-use crate::{core::common::{
+use crate::core::common::{
     http_client_factory::{AuthenticatedHttpClientFactory, ManagedHttpClient},
     transport::{FreeboxResponse, FreeboxResponseError},
-}, diagnostics::{DryRunOutputWriter, DryRunnable}};
+};
 
 use super::MetricMap;
 
-#[derive(Deserialize, Clone, Debug)]
-pub struct SwitchPortStatus {
-    id: Option<i16>,
-    link: Option<String>,
-    speed: Option<String>,
-    mac_list: Option<Vec<SwitchPortHost>>,
-}
-
-#[derive(Deserialize, Clone, Debug)]
-pub struct SwitchPortStats {
-    rx_packets_rate: Option<i64>,
-    rx_good_bytes: Option<i64>,
-    rx_oversize_packets: Option<i64>,
-    rx_unicast_packets: Option<i64>,
-    tx_bytes_rate: Option<i64>,
-    tx_unicast_packets: Option<i64>,
-    rx_bytes_rate: Option<i64>,
-    tx_packets: Option<i64>,
-    tx_collisions: Option<i64>,
-    tx_packets_rate: Option<i64>,
-    tx_fcs: Option<i64>,
-    tx_bytes: Option<i64>,
-    rx_jabber_packets: Option<i64>,
-    tx_single: Option<i64>,
-    tx_excessive: Option<i64>,
-    rx_pause: Option<i64>,
-    rx_multicast_packets: Option<i64>,
-    tx_pause: Option<i64>,
-    rx_good_packets: Option<i64>,
-    rx_broadcast_packets: Option<i64>,
-    tx_multiple: Option<i64>,
-    tx_deferred: Option<i64>,
-    tx_late: Option<i64>,
-    tx_multicast_packets: Option<i64>,
-    rx_fcs_packets: Option<i64>,
-    tx_broadcast_packets: Option<i64>,
-    rx_err_packets: Option<i64>,
-    rx_fragments_packets: Option<i64>,
-    rx_bad_bytes: Option<i64>,
-    rx_undersize_packets: Option<i64>,
-}
-
-#[derive(Deserialize, Clone, Debug)]
-pub struct SwitchPortHost {
-    mac: Option<String>,
-    hostname: Option<String>,
-}
+pub mod dryrun;
+pub mod models;
+pub mod unittests;
 
 pub struct SwitchMetricMap<'a> {
     factory: &'a AuthenticatedHttpClientFactory<'a>,
@@ -380,9 +336,8 @@ impl<'a> SwitchMetricMap<'a> {
 
     async fn get_ports_status(
         &mut self,
-        body: &str
-    ) -> Result<Vec<SwitchPortStatus>, Box<dyn std::error::Error + Send + Sync>> {      
-
+        body: &str,
+    ) -> Result<Vec<SwitchPortStatus>, Box<dyn std::error::Error + Send + Sync>> {
         let fixed_body = SwitchMetricMap::handle_malformed_mac_list(&body)?;
 
         let res = match serde_json::from_str::<FreeboxResponse<Vec<SwitchPortStatus>>>(&fixed_body)
@@ -442,10 +397,9 @@ impl<'a> SwitchMetricMap<'a> {
 
     async fn get_port_stats(
         &mut self,
-        body: &str, 
+        body: &str,
         port_id: &i16,
     ) -> Result<SwitchPortStats, Box<dyn std::error::Error + Send + Sync>> {
-
         let res = match serde_json::from_str::<FreeboxResponse<SwitchPortStats>>(body) {
             Err(e) => return Err(Box::new(e)),
             Ok(r) => r,
@@ -515,7 +469,7 @@ impl<'a> SwitchMetricMap<'a> {
             )));
         }
 
-        let body_status = body_status.unwrap(); 
+        let body_status = body_status.unwrap();
 
         let port_statuses = match self.get_ports_status(&body_status).await {
             Err(e) => return Err(e),
@@ -523,10 +477,8 @@ impl<'a> SwitchMetricMap<'a> {
         };
 
         for port_status in port_statuses {
-            
-            let body_stats = self.get_port_stats_json(&port_status)
-                .await;
-            
+            let body_stats = self.get_port_stats_json(&port_status).await;
+
             if body_stats.is_err() {
                 return Err(Box::new(FreeboxResponseError::new(
                     "v4/switch/port/{}/stats failed".to_string(),
@@ -535,7 +487,10 @@ impl<'a> SwitchMetricMap<'a> {
 
             let body_stats = body_stats.unwrap();
 
-            let stats = match self.get_port_stats(&body_stats, port_status.id.as_ref().unwrap()).await {
+            let stats = match self
+                .get_port_stats(&body_stats, port_status.id.as_ref().unwrap())
+                .await
+            {
                 Err(e) => return Err(e),
                 Ok(r) => r,
             };
@@ -703,131 +658,7 @@ impl<'a> MetricMap<'a> for SwitchMetricMap<'a> {
     }
 }
 
-#[async_trait]
-impl DryRunnable for SwitchMetricMap<'_> {
-
-    fn get_name(&self) -> Result<String,Box<dyn std::error::Error + Send + Sync>>  {
-        Ok("switch".to_string())
-    }
-
-    async fn dry_run(&mut self, writer: &mut dyn DryRunOutputWriter) -> Result<(),Box<dyn std::error::Error + Send + Sync>>{
-        
-        let statuses = self.get_ports_status_json().await;
-
-        if statuses.is_err() {
-            return Err(Box::new(FreeboxResponseError::new(
-                "v4/switch/status/ failed".to_string(),
-            )));
-        }
-
-        let statuses = statuses.unwrap();
-
-        let _ = writer.push("switch", "status", &statuses);
-        
-        let port_statuses = match self.get_ports_status(&statuses).await {
-            Err(e) => return Err(e),
-            Ok(r) => r,
-        };
-
-        let mut i = 0;
-        let len = port_statuses.len();
-
-        let _ = writer.push("switch", "stats", "[");
-
-        for port_status in port_statuses {
-            let body_stats = self.get_port_stats_json(&port_status).await;
-            
-            if body_stats.is_err() {
-                return Err(Box::new(FreeboxResponseError::new(
-                    "v4/switch/port/{}/stats failed".to_string(),
-                )));
-            }
-
-            let body_stats = body_stats.unwrap();
-
-            if body_stats == "" {
-                continue;
-            }
-
-            let _ = writer.push("switch", "stats", &body_stats);
-
-            i += 1;            
-            
-            if i < len {
-                let _ = writer.push("switch", "stats", ",");
-            }
-        }
-
-        let _ = writer.push("switch", "stats", "]");
-
-        
-        Ok(())
-    }
-
-    fn as_dry_runnable(&mut self) ->  &mut dyn DryRunnable {
-        self
-    }
-}
-
 lazy_static! {
     // for performance reasons, we compile the regex only once
     static ref REG_MAC: Regex = Regex::new(r#""mac_list"[^\[]+\{\s{0,}}"#).unwrap();
-}
-
-#[cfg(test)]
-mod non_reg_tests {
-    use regex::Regex;
-
-    use super::*;
-
-    // https://github.com/shackerd/freebox-exporter-rs/issues/90
-    #[test]
-    fn poc_malformed_mac_list() {
-        // The output error described in the issue shows that their is a panic when trying to deserialize a sequence, the only sequence in the payload is the mac_list field
-
-        // this is a payload with a malformed mac_list field, it contains an empty object {} instead of an array [] as it should be in the response
-        // c.f. https://dev.freebox.fr/sdk/os/switch/#SwitchPortStatus
-        let payload = r#"{"success":true,"result":[{"duplex":"full","mac_list":[{"mac":"xx:xx:xx:xx:xx:xx","hostname":"some device :)"}],"name":"Ethernet 1","link":"up","id":1,"mode":"100BaseTX-FD","speed":"100","rrd_id":"1"},{"duplex":"full","mac_list":[{"mac":"xx:xx:xx:xx:xx:xx","hostname":"some device :)"}],"name":"Ethernet 2","link":"up","id":2,"mode":"100BaseTX-FD","speed":"100","rrd_id":"2"},{"duplex":"full","mac_list":[{"mac":"xx:xx:xx:xx:xx:xx","hostname":"some device :)"},{"mac":"xx:xx:xx:xx:xx:xx","hostname":"some device :)"},{"mac":"xx:xx:xx:xx:xx:xx","hostname":"some device :)"},{"mac":"xx:xx:xx:xx:xx:xx","hostname":"some device :)"},{"mac":"xx:xx:xx:xx:xx:xx","hostname":"some device :)"}],"name":"Ethernet 3","link":"up","id":3,"mode":"1000BaseT-FD","speed":"1000","rrd_id":"3"},{"duplex":"full","mac_list":[{"mac":"xx:xx:xx:xx:xx:xx","hostname":"some device :)"}],"name":"Ethernet 4","link":"up","id":4,"mode":"100BaseTX-FD","speed":"100","rrd_id":"4"},{"duplex":"half","name":"Freeplug","link":"down","id":5,"mode":"10BaseT-HD","speed":"10","rrd_id":"freeplug"},{"duplex":"auto","mac_list":{},"name":"Sfp lan","link":"down","id":6,"mode":"1000BaseT-FD","speed":"1000","rrd_id":"sfp_lan"}]}"#;
-
-        let regex = Regex::new(r#""mac_list"[^\[]+\{\s{0,}}"#).unwrap();
-        let fixed_results = regex.replace_all(payload, r#""mac_list":[]"#).to_string();
-
-        let res =
-            match serde_json::from_str::<FreeboxResponse<Vec<SwitchPortStatus>>>(&fixed_results) {
-                Err(e) => {
-                    println!("{:?}", e);
-                    panic!()
-                }
-                Ok(r) => r,
-            };
-
-        if !res.success.unwrap_or(false) {
-            panic!()
-        }
-
-        match res.result {
-            None => panic!(),
-            Some(r) => {
-                assert!(!r
-                    .last()
-                    .unwrap()
-                    .to_owned()
-                    .mac_list
-                    .unwrap()
-                    .iter()
-                    .any(|x| x.mac.is_some()));
-            }
-        }
-    }
-
-    #[test]
-    fn should_handle_malformed_mac_list_test() {
-        let payload = r#"{"success":true,"result":[{"duplex":"full","mac_list":[{"mac":"xx:xx:xx:xx:xx:xx","hostname":"some device :)"}],"name":"Ethernet 1","link":"up","id":1,"mode":"100BaseTX-FD","speed":"100","rrd_id":"1"},{"duplex":"full","mac_list":[{"mac":"xx:xx:xx:xx:xx:xx","hostname":"some device :)"}],"name":"Ethernet 2","link":"up","id":2,"mode":"100BaseTX-FD","speed":"100","rrd_id":"2"},{"duplex":"full","mac_list":[{"mac":"xx:xx:xx:xx:xx:xx","hostname":"some device :)"},{"mac":"xx:xx:xx:xx:xx:xx","hostname":"some device :)"},{"mac":"xx:xx:xx:xx:xx:xx","hostname":"some device :)"},{"mac":"xx:xx:xx:xx:xx:xx","hostname":"some device :)"},{"mac":"xx:xx:xx:xx:xx:xx","hostname":"some device :)"}],"name":"Ethernet 3","link":"up","id":3,"mode":"1000BaseT-FD","speed":"1000","rrd_id":"3"},{"duplex":"full","mac_list":[{"mac":"xx:xx:xx:xx:xx:xx","hostname":"some device :)"}],"name":"Ethernet 4","link":"up","id":4,"mode":"100BaseTX-FD","speed":"100","rrd_id":"4"},{"duplex":"half","name":"Freeplug","link":"down","id":5,"mode":"10BaseT-HD","speed":"10","rrd_id":"freeplug"},{"duplex":"auto","mac_list":{},"name":"Sfp lan","link":"down","id":6,"mode":"1000BaseT-FD","speed":"1000","rrd_id":"sfp_lan"}]}"#;
-        let res = SwitchMetricMap::handle_malformed_mac_list(payload);
-        assert!(res.is_ok());
-
-        // check is the replacement is done correctly
-        let reg = Regex::new(r#""mac_list".+\[\s{0,}\]"#).unwrap();
-        assert!(reg.is_match(&res.unwrap()));
-    }
 }
