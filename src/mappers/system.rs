@@ -1,4 +1,3 @@
-use std::error::Error;
 use async_trait::async_trait;
 use log::debug;
 use prometheus_exporter::prometheus::{
@@ -6,13 +5,17 @@ use prometheus_exporter::prometheus::{
 };
 use reqwest::Client;
 use serde::Deserialize;
+use std::error::Error;
 
-use crate::{core::common::{
-    http_client_factory::{AuthenticatedHttpClientFactory, ManagedHttpClient},
-    transport::{FreeboxResponse, FreeboxResponseError},
-}, diagnostics::DryRunnable};
-use crate::diagnostics::DryRunOutputWriter;
 use super::MetricMap;
+use crate::diagnostics::DryRunOutputWriter;
+use crate::{
+    core::common::{
+        http_client_factory::{AuthenticatedHttpClientFactory, ManagedHttpClient},
+        transport::{FreeboxResponse, FreeboxResponseError},
+    },
+    diagnostics::DryRunnable,
+};
 
 #[derive(Deserialize, Clone, Debug)]
 pub struct SystemConfig {
@@ -233,6 +236,16 @@ impl<'a> SystemMetricMap<'a> {
             .set(1);
         Ok(())
     }
+
+    fn reset_all(&mut self) {
+        self.mac_metric.reset();
+        self.box_flavor_metric.reset();
+        self.disk_status_metric.reset();
+        self.board_name_metric.reset();
+        self.user_main_storage_metric.reset();
+        self.serial_metric.reset();
+        self.firmware_version_metric.reset();
+    }
 }
 
 #[async_trait]
@@ -242,6 +255,8 @@ impl<'a> MetricMap<'a> for SystemMetricMap<'a> {
     }
 
     async fn set(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.reset_all();
+
         match self.set_system_config().await {
             Err(e) => return Err(e),
             _ => {}
@@ -256,7 +271,10 @@ impl DryRunnable for SystemMetricMap<'_> {
         Ok("system".to_string())
     }
 
-    async fn dry_run(&mut self, _writer: &mut dyn DryRunOutputWriter) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn dry_run(
+        &mut self,
+        _writer: &mut dyn DryRunOutputWriter,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         Ok(())
     }
 
