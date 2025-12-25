@@ -18,7 +18,7 @@ You will find on Grafana [gallery](https://grafana.com/grafana/dashboards/21957)
 
 ## Features
 
-* Adaptative Freebox metrics exposition (detects network mode, see: [related issue](https://github.com/shackerd/freebox-exporter-rs/issues/2#issuecomment-2234856496))
+* Adaptive Freebox metrics exposition (detects network mode, see: [related issue](https://github.com/shackerd/freebox-exporter-rs/issues/2#issuecomment-2234856496))
 * Metrics caching & background update
 * Customizable data directory
 * Customizable metrics prefix
@@ -26,6 +26,7 @@ You will find on Grafana [gallery](https://grafana.com/grafana/dashboards/21957)
 * Compressed log files
 * Customizable/CLI overridable log verbosity
 * CLI overridable configuration file path
+* Freebox API certificate validation
 
 ## API Implementation
 
@@ -82,7 +83,7 @@ Options:
 Running with docker
 
 ``` bash
-docker pull docker.io/shackerd/freebox-exporter-rs:latest
+docker pull ghcr.io/shackerd/freebox-exporter-rs:latest
 ```
 
 ``` yaml
@@ -90,7 +91,7 @@ version: '3.8'
 
 services:
   freebox-exporter:
-    image: docker.io/shackerd/freebox-exporter-rs:latest
+    image: ghcr.io/shackerd/freebox-exporter-rs:latest
     container_name: freebox-exporter
     volumes:
       - ./config:/etc/freebox-exporter-rs
@@ -98,7 +99,7 @@ services:
     ports:
       - "9102:9102"
     restart: unless-stopped
-    command: ["/root/freebox-exporter-rs", "-c", "/etc/freebox-exporter-rs/config.toml" ,"auto"]
+    command: ["/usr/bin/freebox-exporter-rs", "-c", "/etc/freebox-exporter-rs/config.toml" ,"auto"]
 ```
 
 > [!IMPORTANT]
@@ -125,7 +126,7 @@ lan = true
 lan_browser = true
 # Exposes switch, this option will be disabled if freebox is in bridge_mode
 switch = true
-# Exposes wifi, this option will be disabled if freebox is in bridge_mode
+# Exposes wifi, this option will be disabled if freebox is in bridge_mode or device is disabled on the host
 wifi = true
 # Exposes dhcp, this option will be disabled if freebox is in bridge_mode
 dhcp = true
